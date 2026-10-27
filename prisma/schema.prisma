@@ -1,0 +1,98 @@
+generator client {
+ provider = "prisma-client-js"
+}
+datasource db {
+ provider = "postgresql"
+ url = env("DATABASE_URL")
+ directUrl = env("DIRECT_URL")
+}
+enum Role {
+ ADMIN
+ PLAYER
+}
+enum HotspotType {
+ INFO
+ PUZZLE
+}
+enum Difficulty {
+ easy
+ medium
+ hard
+}
+enum AnswerType {
+ text
+ number
+}
+enum GameStatus {
+ ACTIVE
+ COMPLETED
+}
+model User {
+ id String @id @default(uuid()) @db.Uuid
+ name String
+ email String @unique
+ passwordHash String
+ role Role @default(PLAYER)
+ createdAt DateTime @default(now())
+ games GameProgress[]
+}
+model Room {
+ id String @id @default(uuid()) @db.Uuid
+ title String
+ description String
+ category String
+ difficulty Difficulty
+ imageUrl String
+ imageKey String? @unique
+ revision Int @default(1)
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ hotspots Hotspot[]
+ games GameProgress[]
+}
+model Hotspot {
+ id String @id @default(uuid()) @db.Uuid
+ roomId String @db.Uuid
+ room Room @relation(fields:[roomId],references:[id],onDelete:Cascade)
+ label String
+ xpercent Float
+ ypercent Float
+ type HotspotType
+ content String
+ question String?
+ answerType AnswerType?
+ answer String?
+ hint String?
+ solvedContent String?
+ prerequisiteId String? @db.Uuid
+ prerequisite Hotspot? @relation("Dependency",fields:[prerequisiteId],references:[id],onDelete:Restrict)
+ dependents Hotspot[] @relation("Dependency")
+ lockedMessage String?
+ isFinal Boolean @default(false)
+ solved SolvedHotspot[]
+ @@index([roomId])
+}
+model GameProgress {
+ id String @id @default(uuid()) @db.Uuid
+ userId String @db.Uuid
+ user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+ roomId String @db.Uuid
+ room Room @relation(fields:[roomId],references:[id],onDelete:Cascade)
+ revision Int
+ status GameStatus @default(ACTIVE)
+ startedAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ completedAt DateTime?
+ solved SolvedHotspot[]
+ @@unique([userId,roomId])
+ @@index([roomId])
+}
+model SolvedHotspot {
+ progressId String @db.Uuid
+ progress GameProgress @relation(fields:[progressId],references:[id],onDelete:Cascade)
+ hotspotId String @db.Uuid
+ hotspot Hotspot @relation(fields:[hotspotId],references:[id],onDelete:Cascade)
+ solvedAt DateTime @default(now())
+ @@id([progressId,hotspotId])
+ @@index([hotspotId])
+}

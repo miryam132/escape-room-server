@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import sharp from "sharp";
 import { createClient } from "@supabase/supabase-js";
 import { env } from "../config/env.js";
@@ -41,6 +41,37 @@ export async function uploadImage(file: Express.Multer.File | undefined) {
       "Upload one image in the image field",
     );
   const data = await sanitizeImage(file.buffer);
+  if (env.CLOUDINARY_CLOUD_NAME) {
+    if (!env.CLOUDINARY_API_KEY || !env.CLOUDINARY_API_SECRET)
+      throw new AppError(503, "STORAGE_NOT_CONFIGURED", "Configure Cloudinary credentials first");
+    const publicId = "room-images/" + randomUUID();
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const signature = createHash("sha256")
+      .update(`public_id=${publicId}&timestamp=${timestamp}${env.CLOUDINARY_API_SECRET}`)
+      .digest("hex");
+    const body = new FormData();
+    body.set("file", new Blob([new Uint8Array(data)], { type: "image/webp" }), "image.webp");
+    body.set("public_id", publicId);
+    body.set("timestamp", timestamp);
+    body.set("api_key", env.CLOUDINARY_API_KEY);
+    body.set("signature", signature);
+    try {
+      const response = await fetch(
+        `https://api.cloudinary.com/v1_1/${env.CLOUDINARY_CLOUD_NAME}/image/upload`,
+        { method: "POST", body, signal: AbortSignal.timeout(30000) },
+      );
+      if (!response.ok) throw new Error("Upload rejected");
+      const result: unknown = await response.json();
+      if (!result || typeof result !== "object" ||
+          !("secure_url" in result) || typeof result.secure_url !== "string" ||
+          !("public_id" in result) || result.public_id !== publicId ||
+          !result.secure_url.startsWith("https://res.cloudinary.com/"))
+        throw new Error("Invalid storage response");
+      return { imageKey: result.public_id, imageUrl: result.secure_url };
+    } catch {
+      throw new AppError(502, "UPLOAD_FAILED", "Image upload failed. Check Cloudinary configuration or retry.");
+    }
+  }
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY)
     throw new AppError(
       503,
